@@ -5,13 +5,44 @@ import unfiltered.response._
 
 import org.clapper.avsl.Logger
 
+import com.codahale.jerkson.Json
+import com.fasterxml.jackson.core.{Version, JsonGenerator}
+import com.fasterxml.jackson.databind.module.SimpleModule
+import com.fasterxml.jackson.databind.{JsonDeserializer, SerializerProvider, JsonSerializer}
+//import org.joda.time.DateTime
+//import org.joda.time.format.ISODateTimeFormat
+//import java.text.DateFormat
+//import java.util.Locale
+
+case class RSS(name: String, url: String)
+
 /** unfiltered plan */
 class App extends unfiltered.filter.Plan {
   import QParams._
 
   val logger = Logger(classOf[App])
-
+  def jsonResponse[T](t:T)= JsonContent ~> ResponseString(Json.generate(t))
   def intent = {
+    case GET(Path(Seg("rss"::Nil)))=> Ok ~> jsonResponse(Seq("test","de","null"))
+    case GET(Path(Seg("rss"::"new"::Nil)))=> Ok ~> HtmlContent ~> Html(
+        <html><body><form action="/rss" method="POST">
+          <input type="text" name="name"/>
+          <input type="text" name="url"/>
+          <input type="submit"/>
+        </form></body></html>
+      )
+    case POST(Path("/rss") & Params(params))=> {
+      import unfiltered.request.QParams._
+      val expected = for (
+        name <- lookup("name") is required("missing");
+        url <- lookup("url") is required("missing")
+      ) yield {
+        Ok ~> JsContent ~> jsonResponse(new RSS(name.get,url.get))
+      }
+      expected(params) orFail (failures => {
+        BadRequest ~> JsContent ~> jsonResponse(failures)
+      })
+    }
     case GET(Path(p)) =>
       logger.debug("GET %s" format p)
       Ok ~> view(Map.empty)(<p> What say you? </p>)
@@ -60,10 +91,10 @@ class App extends unfiltered.filter.Plan {
 object Server {
   val logger = Logger(Server.getClass)
   def main(args: Array[String]) {
-    val http = unfiltered.jetty.Http.anylocal // this will not be necessary in 0.4.0
+    val http = unfiltered.jetty.Http(8080) // this will not be necessary in 0.4.0
     http.context("/assets") { _.resources(new java.net.URL(getClass().getResource("/www/css"), ".")) }
       .filter(new App).run({ svr =>
-        unfiltered.util.Browser.open(http.url)
+        unfiltered.util.Browser.open(http.url+"rss")
       }, { svr =>
         logger.info("shutting down server")
       })
